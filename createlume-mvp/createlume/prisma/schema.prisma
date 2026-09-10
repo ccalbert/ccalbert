@@ -1,0 +1,152 @@
+// Createlume — Nonprofit Growth OS
+// Database schema. Run `npm run db:push` after setting DATABASE_URL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanTier {
+  FOUNDATION
+  GROWTH
+  MANAGED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+}
+
+enum ApplicationStatus {
+  RESEARCH
+  DRAFTING
+  IN_REVIEW
+  SUBMITTED
+  AWARDED
+  DECLINED
+}
+
+model Organization {
+  id                String   @id @default(cuid())
+  name              String
+  ein               String?
+  mission           String?
+  website           String?
+  city              String?
+  state             String?
+  annualRevenueBand String?
+  populationServed  String?
+  programAreas      String[] @default([])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users         User[]
+  subscription  Subscription?
+  audits        FundingAudit[]
+  matches       GrantMatch[]
+  applications  GrantApplication[]
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
+  name           String?
+  role           String   @default("ADMIN") // ADMIN, STAFF, BOARD
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime @default(now())
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  organizationId       String             @unique
+  organization         Organization       @relation(fields: [organizationId], references: [id])
+  plan                 PlanTier
+  status               SubscriptionStatus @default(INCOMPLETE)
+  stripeCustomerId     String?
+  stripeSubscriptionId String? @unique
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+// A free lead-gen "Funding Audit" — doesn't require a paid account.
+model FundingAudit {
+  id             String   @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  contactEmail   String
+  orgName        String
+  ein            String?
+  mission        String
+  city           String?
+  state          String?
+  programAreas   String[] @default([])
+  resultsJson    Json?    // cached scored matches at time of audit
+  estimatedTotal Int?     // sum of estimated award amounts, in whole dollars
+  matchCount     Int?
+  createdAt      DateTime @default(now())
+}
+
+// A grant opportunity pulled from Grants.gov or a curated foundation dataset.
+model GrantOpportunity {
+  id              String   @id @default(cuid())
+  source          String   // "GRANTS_GOV" | "CURATED"
+  externalId      String?  @unique // Grants.gov opportunity number, if applicable
+  title           String
+  funder          String
+  description     String?
+  eligibilityText String?
+  geographyScope  String?  // e.g. "National", "Illinois", "Cook County, IL"
+  programTags     String[] @default([])
+  minAward        Int?
+  maxAward        Int?
+  deadline        DateTime?
+  applyUrl        String?
+  postedAt        DateTime?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  matches      GrantMatch[]
+  applications GrantApplication[]
+}
+
+model GrantMatch {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  opportunityId      String
+  opportunity        GrantOpportunity @relation(fields: [opportunityId], references: [id])
+  missionFitScore    Int      // 0-100
+  programFitScore    Int      // 0-100
+  geographyFitScore  Int      // 0-100
+  overallFitScore    Int      // 0-100
+  eligibilityPass    Boolean
+  recommendation     String   // "STRONGLY_RECOMMENDED" | "RECOMMENDED" | "POSSIBLE" | "NOT_RECOMMENDED"
+  createdAt          DateTime @default(now())
+
+  @@unique([organizationId, opportunityId])
+}
+
+model GrantApplication {
+  id             String            @id @default(cuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  opportunityId  String
+  opportunity    GrantOpportunity  @relation(fields: [opportunityId], references: [id])
+  status         ApplicationStatus @default(RESEARCH)
+  narrativeDraft String?
+  budgetDraft    Json?
+  assignedTo     String?
+  dueDate        DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
